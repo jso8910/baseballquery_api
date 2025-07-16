@@ -1,10 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, NotFound
 import baseballquery
 import numpy as np
+from rest_api.models import SavedQuery
 from rest_api.cache import QueryCache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from copy import deepcopy
 
 split_params = [
     # "start_year",
@@ -16,8 +19,6 @@ split_params = [
     "pitcher_handedness",
     "batter_starter",
     "pitcher_starter",
-    "batter_lineup_pos",
-    "player_field_position",
     "batter_home",
     "pitcher_home",
     # "pitching_team",
@@ -38,13 +39,23 @@ list_params_type_func = {
     "batting_team": str,
     "innings": int,
     "outs": int,
+    "count": str,
     "strikes": int,
     "balls": int,
     "score_diff": int,
     "home_score": int,
     "away_score": int,
     "base_situation": int,
+    "batter_lineup_pos": int,
+    "player_field_position": int,
 }
+
+bool_params = [
+    "batter_home",
+    "pitcher_home",
+    "batter_starter",
+    "pitcher_starter",
+]
 
 def proc_params(params, splits: baseballquery.stat_splits.StatSplits):
     method_map = {
@@ -63,8 +74,9 @@ def proc_params(params, splits: baseballquery.stat_splits.StatSplits):
         "batting_team": "set_batting_team",
         "innings": "set_innings",
         "outs": "set_outs",
-        "strikes": "set_strikes",
-        "balls": "set_balls",
+        "count": "set_count",
+        "strikes": "set_strikes_end",
+        "balls": "set_balls_end",
         "score_diff": "set_score_diff",
         "home_score": "set_home_score",
         "away_score": "set_away_score",
@@ -88,8 +100,8 @@ def param_validation(query_params):
     elif "end_year" in query_params and "start_year" not in query_params:
         raise ValidationError("start_year must be provided if end_year is provided")
 
-    if "split" in query_params and query_params["split"] not in ["year", "career"]:
-        raise ValidationError("split must be either 'year' or 'career'")
+    if "split" in query_params and query_params["split"] not in ["year", "career", "month", "game"]:
+        raise ValidationError("split must be either 'year', 'career', 'month', or 'game'")
 
     if "find" in query_params and query_params["find"] not in ["player", "team"]:
         raise ValidationError("find must be either 'player' or 'team'")
@@ -112,11 +124,15 @@ def param_validation(query_params):
     if "pitcher_starter" in query_params and query_params["pitcher_starter"] not in ["Y", "N"]:
         raise ValidationError("pitcher_starter must be 'Y' or 'N'")
 
-    if "batter_lineup_pos" in query_params and query_params["batter_lineup_pos"] not in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
-        raise ValidationError("batter_lineup_pos must be an integer from 1 to 9")
+    if "batter_lineup_pos" in query_params:
+        batter_lineup_pos = query_params["batter_lineup_pos"].split(",")
+        if not all(pos.isdigit() and 1 <= int(pos) <= 9 for pos in batter_lineup_pos):
+            raise ValidationError("batter_lineup_pos must be a comma-separated list of integers from 1 to 9")
 
-    if "player_field_position" in query_params and query_params["player_field_position"] not in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]:
-        raise ValidationError("player_field_position must be an integer from 1 to 12")
+    if "player_field_position" in query_params:
+        player_field_position = query_params["player_field_position"].split(",")
+        if not all(pos.isdigit() and 1 <= int(pos) <= 12 for pos in player_field_position):
+            raise ValidationError("player_field_position must be a comma-separated list of integers from 1 to 12")
 
     if "batter_home" in query_params and query_params["batter_home"] not in ["Y", "N"]:
         raise ValidationError("batter_home must be 'Y' or 'N'")
@@ -151,6 +167,13 @@ def param_validation(query_params):
                 raise ValidationError("outs must be a comma-separated list of integers from 0 to 2")
         except ValueError:
             raise ValidationError("outs must be a comma-separated list of integers")
+
+    if "count" in query_params:
+        counts = query_params["count"].split(",")
+        if not all(len(count) == 3 and count[0].isdigit() and count[1] == '-' and count[2].isdigit() for count in counts):
+            raise ValidationError("count must be a comma-separated list of strings in the format 'strikes-balls' (e.g., '2-1')")
+        if not all(0 <= int(count.split('-')[0]) <= 2 and 0 <= int(count.split('-')[1]) <= 3 for count in counts):
+            raise ValidationError("strikes must be between 0 and 2, and balls must be between 0 and 3 in the count format 'strikes-balls' (e.g., '2-1')")
 
     if "strikes" in query_params:
         strikes = query_params["strikes"].split(",")
@@ -222,6 +245,12 @@ class BattingStatQuery(APIView):
             if type(value) is list:
                 params[key] = sorted(value)
 
+        # Process boolean params
+        for key in bool_params:
+            if key in params:
+                if params[key] in ["Y", "N"]:
+                    params[key] = True if params[key] == "Y" else False
+
         # Initialize cache and search for data
         cache = QueryCache()
         stats, years_found = cache.get_data(params)
@@ -234,7 +263,7 @@ class BattingStatQuery(APIView):
             for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
                 s.stats[col] = s.stats[col].fillna("N/A")
             s.stats = s.stats.fillna("NaN")
-            cache.put_data(params, s.stats)
+            cache.put_data(params, s.stats, years_found)
             stats = s.stats.to_dict(orient='records', index=True)
         else:
             # Otherwise, see what years are missing for this query and calculate those
@@ -251,7 +280,7 @@ class BattingStatQuery(APIView):
                     s.stats[col] = s.stats[col].fillna("N/A")
                 s.stats = s.stats.fillna("NaN")
                 stats.extend(s.stats.to_dict(orient='records', index=True))
-                cache.put_data(params, s.stats)
+                cache.put_data(params, s.stats, years_found)
         cache.close()
 
         # Filter and sort the stats based on query parameters
@@ -293,6 +322,13 @@ class PitchingStatQuery(APIView):
         for key, value in params.items():
             if type(value) is list:
                 params[key] = sorted(value)
+
+        # Process boolean params
+        for key in bool_params:
+            if key in params:
+                if params[key] in ["Y", "N"]:
+                    params[key] = True if params[key] == "Y" else False
+
         stats, years_found = cache.get_data(params)
         if len(years_found) == 0:
             s = baseballquery.PitchingStatSplits(start_year=params["start_year"], end_year=params["end_year"])
@@ -303,7 +339,7 @@ class PitchingStatQuery(APIView):
             for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
                 s.stats[col] = s.stats[col].fillna("N/A")
             s.stats = s.stats.fillna("NaN")
-            cache.put_data(params, s.stats)
+            cache.put_data(params, s.stats, years_found)
             stats = s.stats.to_dict(orient='records', index=True)
         else:
             all_years = set(range(params["start_year"], params["end_year"] + 1))
@@ -319,7 +355,7 @@ class PitchingStatQuery(APIView):
                     s.stats[col] = s.stats[col].fillna("N/A")
                 s.stats = s.stats.fillna("NaN")
                 stats.extend(s.stats.to_dict(orient='records', index=True))
-                cache.put_data(params, s.stats)
+                cache.put_data(params, s.stats, years_found)
         cache.close()
 
         if len(stats) != 0:
@@ -341,3 +377,47 @@ class PitchingStatQuery(APIView):
         paginator.page_size = request.query_params.get("page_size", 50)
         page = paginator.paginate_queryset(stats, request, view=self)
         return paginator.get_paginated_response(page)
+
+class SavedQueries(APIView):
+    def get(self, request):
+        uuid = request.query_params.get("uuid")
+        try:
+            saved_query = SavedQuery.objects.get(key=uuid)
+        except SavedQuery.DoesNotExist:
+            raise NotFound("Saved query not found.")
+        except DjangoValidationError:
+            raise ValidationError("Invalid UUID format.")
+        return Response(saved_query.to_dict())
+
+    def post(self, request):
+        params = request.data.get("params")
+        if not params:
+            raise ValidationError("'params' is required.")
+        if not isinstance(params, dict):
+            raise ValidationError("'params' must be a dictionary.")
+
+        if "type" not in params:
+            raise ValidationError("'type' must be specified in params.")
+        if params["type"] not in ["batting", "pitching"]:
+            raise ValidationError("'type' in params must be either 'batting' or 'pitching'.")
+        # Convert lists to comma separated lists for validation
+        params_new = deepcopy(params)
+        to_delete = []
+        for key, value in params_new.items():
+            if isinstance(value, list):
+                if len(value) == 0:
+                    to_delete.append(key)
+                else:
+                    params_new[key] = ",".join(map(str, value))
+            if value is None or value == "":
+                to_delete.append(key)
+            if isinstance(value, bool):
+                params_new[key] = "Y" if value else "N"
+        for key in to_delete:
+            del params_new[key]
+        param_validation(params_new)
+        
+        
+        saved_query = SavedQuery(params=params)
+        saved_query.save()
+        return Response({"message": "Saved query created successfully.", "uuid": str(saved_query.key)}, status=201)

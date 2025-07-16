@@ -1,7 +1,6 @@
 import lmdb
 import msgspec.json as json
 from hashlib import sha1
-import time
 
 class QueryCache:
     def __init__(self, db_path="lmdb_db", map_size=1024*1024*1024*1024):
@@ -42,10 +41,12 @@ class QueryCache:
                 else:
                     return [], set()
 
-    def put_data(self, params, stats):
+    def put_data(self, params, stats, years_found):
         if params["split"] != "career":
             # Split the params into multiple params_dicts with year: year_value for each year in [start_year, end_year]
             for year in range(params["start_year"], params["end_year"] + 1):
+                if year in years_found:
+                    continue
                 params_dict = params.copy()
                 del params_dict["start_year"]
                 del params_dict["end_year"]
@@ -60,8 +61,8 @@ class QueryCache:
             # For career stats, just use the original params with start_year and end_year
             h = sha1(json.encode(params, order="deterministic")).digest()
             with self.env.begin(write=True) as txn:
-                txn.put(h, json.encode(stats), db=self.calls)
+                txn.put(h, json.encode(stats.to_dict(orient='records', index=True)), db=self.calls)
                 for year in range(params["start_year"], params["end_year"] + 1):
-                    txn.put(h, year.to_bytes(), db=self.years)
+                    txn.put(h, year.to_bytes(2), db=self.years)
     def close(self):
         self.env.close()
