@@ -9,6 +9,8 @@ from rest_api.cache import QueryCache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from copy import deepcopy
 
+filter_params = ["filter_opposing", "filter_innings", "filter_top", "filter_stats", "filter_values", "filter_operators"]
+
 split_params = [
     # "start_year",
     # "end_year",
@@ -31,6 +33,8 @@ split_params = [
     # "home_score",
     # "away_score",
     # "base_situation",
+    "filter_home",
+    "filter_opposing",
 ]
 
 list_params_type_func = {
@@ -48,6 +52,11 @@ list_params_type_func = {
     "base_situation": int,
     "batter_lineup_pos": int,
     "player_field_position": int,
+    "filter_innings": int,
+    "filter_top": str,
+    "filter_stats": str,
+    "filter_values": int,
+    "filter_operators": str,
 }
 
 bool_params = [
@@ -55,6 +64,100 @@ bool_params = [
     "pitcher_home",
     "batter_starter",
     "pitcher_starter",
+]
+
+valid_filter_cols = [
+    "AB_FL",
+    "H_CD",
+    "SH_FL",
+    "SF_FL",
+    "EVENT_OUTS_CT",
+    "DP_FL",
+    "TP_FL",
+    "RBI_CT",
+    "WP_FL",
+    "PB_FL",
+    "BATTEDBALL_CD",
+    "BAT_DEST_ID",
+    "RUN1_DEST_ID",
+    "RUN2_DEST_ID",
+    "RUN3_DEST_ID",
+    "RUN1_SB_FL",
+    "RUN2_SB_FL",
+    "RUN3_SB_FL",
+    "RUN1_CS_FL",
+    "RUN2_CS_FL",
+    "RUN3_CS_FL",
+    "RUN1_PK_FL",
+    "RUN2_PK_FL",
+    "RUN3_PK_FL",
+    "RUN1_RESP_PIT_ID",
+    "RUN2_RESP_PIT_ID",
+    "RUN3_RESP_PIT_ID",
+    "HOME_TEAM_ID",
+    "BAT_TEAM_ID",
+    "FLD_TEAM_ID",
+    "PA_TRUNC_FL",
+    "START_BASES_CD",
+    "END_BASES_CD",
+    "RESP_BAT_START_FL",
+    "RESP_PIT_START_FL",
+    "PA_BALL_CT",
+    "PA_OTHER_BALL_CT",
+    "PA_STRIKE_CT",
+    "PA_OTHER_STRIKE_CT",
+    "EVENT_RUNS_CT",
+    "BAT_SAFE_ERR_FL",
+    "FATE_RUNS_CT",
+    "MLB_STATSAPI_APPROX",
+    "mlbam_id",
+    "0-0",
+    "0-1",
+    "0-2",
+    "1-0",
+    "1-1",
+    "1-2",
+    "2-0",
+    "2-1",
+    "2-2",
+    "3-0",
+    "3-1",
+    "3-2",
+    "PA",
+    "AB",
+    "SH",
+    "SF",
+    "R",
+    "RBI",
+    "SB",
+    "CS",
+    "K",
+    "BK",
+    "UBB",
+    "IBB",
+    "HBP",
+    "FC",
+    "1B",
+    "2B",
+    "3B",
+    "HR",
+    "H",
+    "DP",
+    "TP",
+    "ROE",
+    "WP",
+    "P",
+    "GB",
+    "FB",
+    "LD",
+    "PU",
+    "ER",
+    "T_UER",
+    "UER",
+
+    # Not actual columns, but the API allows filtering by these through backend logic
+    "SCORE",
+    "SCORE_DIFF",
 ]
 
 def proc_params(params, splits: baseballquery.stat_splits.StatSplits):
@@ -85,6 +188,19 @@ def proc_params(params, splits: baseballquery.stat_splits.StatSplits):
     for param, method_name in method_map.items():
         if param in params:
             getattr(splits, method_name)(params[param])
+
+    if "filter_stats" in params:
+        # Turn all the lists in params[filter_params] into list of dicts
+        stat_filters_list = []
+        for i in range(len(params["filter_stats"])):
+            stat_filters_list.append({
+                "inning": params["filter_innings"][i],
+                "top": params["filter_top"][i],
+                "stat": params["filter_stats"][i],
+                "value": params["filter_values"][i],
+                "operator": params["filter_operators"][i],
+            })
+        splits.filter_stats_by_innings(params["filter_home"], stat_filters_list, params["filter_opposing"])
 
 def param_validation(query_params):
     if "start_year" in query_params and "end_year" in query_params:
@@ -227,6 +343,47 @@ def param_validation(query_params):
         except ValueError:
             raise ValidationError("base_situation must be a comma-separated list of integers")
 
+    if any(x in query_params for x in filter_params) and not all(x in query_params for x in filter_params):
+        raise ValidationError("The filter feature requires all of filter_opposing, filter_innings, filter_top, filter_stats, filter_values, and filter_operators to be specified")
+
+    if "filter_home" in query_params and query_params["inn_filter_home"] not in ["home", "away", "either"]:
+        raise ValidationError("inn_filter_home must be 'home', 'away', or 'either'")
+
+    if "filter_opposing" in query_params and query_params["inn_filter_opposing"] not in ["Y", "N"]:
+        raise ValidationError("inn_filter_opposing must be 'Y' or 'N'")
+
+    if "filter_innings" in query_params:
+        innings = query_params["filter_innings"].split(",")
+        try:
+            innings = [int(i) for i in innings]
+            if not all(1 <= i for i in innings):
+                raise ValidationError("filter_innings must be a comma-separated list of integers greater than or equal to 1")
+        except ValueError:
+            raise ValidationError("filter_innings must be a comma-separated list of integers")
+
+    if "filter_top" in query_params:
+        top = query_params["filter_top"].split(",")
+        if not all(t in ["Y", "N"] for t in top):
+            raise ValidationError("filter_top must be a comma-separated list of 'Y' or 'N' values")
+
+    if "filter_stats" in query_params:
+        cols = query_params["filter_stats"].split(",")
+        if not all(col in valid_filter_cols for col in cols):
+            raise ValidationError(f"filter_stats must be a comma-separated list of valid columns: {', '.join(valid_filter_cols)}")
+
+    if "filter_values" in query_params:
+        values = query_params["filter_values"].split(",")
+        try:
+            values = [int(value) for value in values]
+        except ValueError:
+            raise ValidationError("filter_values must be a comma-separated list of integers")
+
+    if "filter_operators" in query_params:
+        operators = query_params["filter_operators"].split(",")
+        valid_operators = ["=", "<", ">", "<=", ">=", "!="]
+        if not all(op in valid_operators for op in operators):
+            raise ValidationError(f"filter_operators must be a comma-separated list of valid operators: {', '.join(valid_operators)}")
+
 
 class BattingStatQuery(APIView):
     def get(self, request):
@@ -250,6 +407,15 @@ class BattingStatQuery(APIView):
             if key in params:
                 if params[key] in ["Y", "N"]:
                     params[key] = True if params[key] == "Y" else False
+
+        # Process filter_top boolean values
+        if "filter_top" in params:
+            params["filter_top"] = [True if val == "Y" else False for val in params["filter_top"]]
+
+            # Make sure all filter_params lists are the same length
+            for param in filter_params:
+                if param in params and len(params[param]) != len(params["filter_top"]):
+                    raise ValidationError(f"All filter parameters must have the same number of elements. '{param}' has {len(params[param])} elements, but 'filter_top' has {len(params['filter_top'])} elements.")
 
         # Initialize cache and search for data
         cache = QueryCache()
