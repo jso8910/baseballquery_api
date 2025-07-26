@@ -11,6 +11,8 @@ from copy import deepcopy
 
 filter_params = ["filter_opposing", "filter_innings", "filter_top", "filter_stats", "filter_values", "filter_operators"]
 
+nullable_cols = ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year", "win", "loss"]
+
 split_params = [
     # "start_year",
     # "end_year",
@@ -64,6 +66,7 @@ bool_params = [
     "pitcher_home",
     "batter_starter",
     "pitcher_starter",
+    "filter_opposing"
 ]
 
 valid_filter_cols = [
@@ -346,11 +349,11 @@ def param_validation(query_params):
     if any(x in query_params for x in filter_params) and not all(x in query_params for x in filter_params):
         raise ValidationError("The filter feature requires all of filter_opposing, filter_innings, filter_top, filter_stats, filter_values, and filter_operators to be specified")
 
-    if "filter_home" in query_params and query_params["inn_filter_home"] not in ["home", "away", "either"]:
-        raise ValidationError("inn_filter_home must be 'home', 'away', or 'either'")
+    if "filter_home" in query_params and query_params["filter_home"] not in ["home", "away", "either"]:
+        raise ValidationError("filter_home must be 'home', 'away', or 'either'")
 
-    if "filter_opposing" in query_params and query_params["inn_filter_opposing"] not in ["Y", "N"]:
-        raise ValidationError("inn_filter_opposing must be 'Y' or 'N'")
+    if "filter_opposing" in query_params and query_params["filter_opposing"] not in ["Y", "N"]:
+        raise ValidationError("filter_opposing must be 'Y' or 'N'")
 
     if "filter_innings" in query_params:
         innings = query_params["filter_innings"].split(",")
@@ -414,7 +417,7 @@ class BattingStatQuery(APIView):
 
             # Make sure all filter_params lists are the same length
             for param in filter_params:
-                if param in params and len(params[param]) != len(params["filter_top"]):
+                if param in params and (param != "filter_opposing" and len(params[param]) != len(params["filter_top"])):
                     raise ValidationError(f"All filter parameters must have the same number of elements. '{param}' has {len(params[param])} elements, but 'filter_top' has {len(params['filter_top'])} elements.")
 
         # Initialize cache and search for data
@@ -426,7 +429,7 @@ class BattingStatQuery(APIView):
             s.calculate_stats()
             s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
             s.stats.reset_index(inplace=True, drop=False)
-            for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
+            for col in nullable_cols:
                 s.stats[col] = s.stats[col].fillna("N/A")
             s.stats = s.stats.fillna("NaN")
             cache.put_data(params, s.stats, years_found)
@@ -442,7 +445,7 @@ class BattingStatQuery(APIView):
                 s.calculate_stats()
                 s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
                 s.stats.reset_index(inplace=True, drop=False)
-                for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
+                for col in nullable_cols:
                     s.stats[col] = s.stats[col].fillna("N/A")
                 s.stats = s.stats.fillna("NaN")
                 stats.extend(s.stats.to_dict(orient='records', index=True))
@@ -495,6 +498,14 @@ class PitchingStatQuery(APIView):
                 if params[key] in ["Y", "N"]:
                     params[key] = True if params[key] == "Y" else False
 
+        if "filter_top" in params:
+            params["filter_top"] = [True if val == "Y" else False for val in params["filter_top"]]
+
+            # Make sure all filter_params lists are the same length
+            for param in filter_params:
+                if param in params and (param != "filter_opposing" and len(params[param]) != len(params["filter_top"])):
+                    raise ValidationError(f"All filter parameters must have the same number of elements. '{param}' has {len(params[param])} elements, but 'filter_top' has {len(params['filter_top'])} elements.")
+
         stats, years_found = cache.get_data(params)
         if len(years_found) == 0:
             s = baseballquery.PitchingStatSplits(start_year=params["start_year"], end_year=params["end_year"])
@@ -502,7 +513,7 @@ class PitchingStatQuery(APIView):
             s.calculate_stats()
             s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
             s.stats.reset_index(inplace=True, drop=False)
-            for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
+            for col in nullable_cols:
                 s.stats[col] = s.stats[col].fillna("N/A")
             s.stats = s.stats.fillna("NaN")
             cache.put_data(params, s.stats, years_found)
@@ -517,7 +528,7 @@ class PitchingStatQuery(APIView):
                 s.calculate_stats()
                 s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
                 s.stats.reset_index(inplace=True, drop=False)
-                for col in ["year", "player_id", "team", "month", "day", "game_id", "start_year", "end_year"]:
+                for col in nullable_cols:
                     s.stats[col] = s.stats[col].fillna("N/A")
                 s.stats = s.stats.fillna("NaN")
                 stats.extend(s.stats.to_dict(orient='records', index=True))
