@@ -27,7 +27,7 @@ services:
       - /var/run/docker.sock:/tmp/docker.sock:ro
     depends_on:
       - web
-acme-companion:
+  acme-companion:
     image: nginxproxy/acme-companion
     env_file:
       - ./.env.proxy-companion
