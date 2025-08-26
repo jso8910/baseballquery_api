@@ -1,0 +1,1 @@
+*/30 * * * * /usr/bin/python3 update_new_data.py > /var/log/cron.log

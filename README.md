@@ -1,0 +1,1 @@
+When running, make sure to sumlink update-games-cron to /etc/cron.d/
