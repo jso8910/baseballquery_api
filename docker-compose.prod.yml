@@ -19,8 +19,6 @@ services:
     ports:
       - 80
     volumes:
-      - static_volume:/home/app/web/staticfiles
-      - media_volume:/home/app/web/mediafiles
       - certs:/etc/nginx/certs
       - html:/usr/share/nginx/html
       - vhost:/etc/nginx/vhost.d
@@ -39,3 +37,9 @@ services:
       - acme:/etc/acme.sh
     depends_on:
       - nginx
+
+volumes:
+  certs:
+  html:
+  vhost:
+  acme:
