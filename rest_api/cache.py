@@ -66,3 +66,10 @@ class QueryCache:
                     txn.put(h, year.to_bytes(2), db=self.years)
     def close(self):
         self.env.close()
+
+    def delete_year_data(self, year):
+        with self.env.begin(write=True) as txn:
+            for key, val in txn.cursor(db=self.calls):
+                if int.from_bytes(txn.get(key, db=self.years)) == year:
+                    txn.delete(key, db=self.calls)
+                    txn.delete(key, db=self.years)

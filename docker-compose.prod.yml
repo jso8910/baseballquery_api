@@ -2,12 +2,14 @@ version: '3.8'
 
 services:
   web:
-    build: .
+    entrypoint: /home/app/web/entrypoint.sh
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
     command: gunicorn baseballquery_backend.wsgi:application
     volumes:
-      - ./:/usr/src/app/
-      - ~/.baseballquery:/root/.baseballquery
-      - ./lmdb_db:/usr/src/app/lmdb_db
+      - ~/.baseballquery:/home/app/.baseballquery
+      - ./lmdb_db:/home/app/web/lmdb_db
     expose:
       - 8000
     env_file:
@@ -18,3 +20,6 @@ services:
       - 1337:80
     depends_on:
       - web
+  cron:
+    build: .
+    command: ["/usr/sbin/cron", "-f"]
