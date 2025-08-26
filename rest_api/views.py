@@ -388,8 +388,38 @@ def param_validation(query_params):
             raise ValidationError(f"filter_operators must be a comma-separated list of valid operators: {', '.join(valid_operators)}")
 
 
+def separate_years_into_ranges(years_set):
+    """
+    Separates a set of years into a list of year ranges.
+
+    Args:
+        years_set: A set of integer years.
+
+    Returns:
+        A list of tuples, where each tuple represents a year range (start_year, end_year).
+    """
+    if not years_set:
+        return []
+
+    sorted_years = sorted(list(years_set))
+    ranges = []
+    current_range_start = sorted_years[0]
+    current_range_end = sorted_years[0]
+
+    for i in range(1, len(sorted_years)):
+        if sorted_years[i] == current_range_end + 1:
+            current_range_end = sorted_years[i]
+        else:
+            ranges.append((current_range_start, current_range_end))
+            current_range_start = sorted_years[i]
+            current_range_end = sorted_years[i]
+
+    ranges.append((current_range_start, current_range_end))  # Add the last range
+    return ranges
+
 class BattingStatQuery(APIView):
     def get(self, request):
+        cache = QueryCache()
         param_validation(request.query_params)
         params = {
             "type": "batting",
@@ -421,9 +451,11 @@ class BattingStatQuery(APIView):
                     raise ValidationError(f"All filter parameters must have the same number of elements. '{param}' has {len(params[param])} elements, but 'filter_top' has {len(params['filter_top'])} elements.")
 
         # Initialize cache and search for data
-        cache = QueryCache()
         stats, years_found = cache.get_data(params)
-        if len(years_found) == 0:   # If no data matching this query is found in the cache, fully calculate it then add it to the cache
+        all_years = set(range(params["start_year"], params["end_year"] + 1))
+        missing_years = all_years - years_found
+        ranges_missing_years = separate_years_into_ranges(missing_years)
+        if len(ranges_missing_years) >= 3 or len(missing_years) == 1 and len(ranges_missing_years) == 2: # If we would have to run 3 or more queries to complete this, just rerun the full query
             s = baseballquery.BattingStatSplits(start_year=params["start_year"], end_year=params["end_year"])
             proc_params(params, s)
             s.calculate_stats()
@@ -434,13 +466,10 @@ class BattingStatQuery(APIView):
             s.stats = s.stats.fillna("NaN")
             cache.put_data(params, s.stats, years_found)
             stats = s.stats.to_dict(orient='records', index=True)
-        else:
+        elif len(ranges_missing_years) > 0:
             # Otherwise, see what years are missing for this query and calculate those
-            all_years = set(range(params["start_year"], params["end_year"] + 1))
-            if years_found != all_years:
-                missing_years = all_years - years_found
-                years_list = list(missing_years)
-                s = baseballquery.BattingStatSplits(years_list=years_list)
+            for start_year, end_year in ranges_missing_years:
+                s = baseballquery.BattingStatSplits(start_year=start_year, end_year=end_year)
                 proc_params(params, s)
                 s.calculate_stats()
                 s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -506,8 +535,12 @@ class PitchingStatQuery(APIView):
                 if param in params and (param != "filter_opposing" and len(params[param]) != len(params["filter_top"])):
                     raise ValidationError(f"All filter parameters must have the same number of elements. '{param}' has {len(params[param])} elements, but 'filter_top' has {len(params['filter_top'])} elements.")
 
+        # Initialize cache and search for data
         stats, years_found = cache.get_data(params)
-        if len(years_found) == 0:
+        all_years = set(range(params["start_year"], params["end_year"] + 1))
+        missing_years = all_years - years_found
+        ranges_missing_years = separate_years_into_ranges(missing_years)
+        if len(ranges_missing_years) >= 3 or len(missing_years) == 1 and len(ranges_missing_years) == 2: # If we would have to run 3 or more queries to complete this, just rerun the full query
             s = baseballquery.PitchingStatSplits(start_year=params["start_year"], end_year=params["end_year"])
             proc_params(params, s)
             s.calculate_stats()
@@ -518,12 +551,10 @@ class PitchingStatQuery(APIView):
             s.stats = s.stats.fillna("NaN")
             cache.put_data(params, s.stats, years_found)
             stats = s.stats.to_dict(orient='records', index=True)
-        else:
-            all_years = set(range(params["start_year"], params["end_year"] + 1))
-            if years_found != all_years:
-                missing_years = all_years - years_found
-                years_list = list(missing_years)
-                s = baseballquery.PitchingStatSplits(years_list=years_list)
+        elif len(ranges_missing_years) > 0:
+            # Otherwise, see what years are missing for this query and calculate those
+            for start_year, end_year in ranges_missing_years:
+                s = baseballquery.PitchingStatSplits(start_year=start_year, end_year=end_year)
                 proc_params(params, s)
                 s.calculate_stats()
                 s.stats.replace([np.inf, -np.inf], np.nan, inplace=True)
