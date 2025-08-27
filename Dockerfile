@@ -72,9 +72,6 @@ COPY . $APP_HOME
 # chown all the files to the app user
 RUN chown -R app:app $APP_HOME
 
-# chown .baseballquery
-RUN chown -R app:app $HOME/.baseballquery
-
 # change to the app user
 USER app
 
