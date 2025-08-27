@@ -75,6 +75,7 @@ RUN chown -R app:app $APP_HOME
 # chown .baseballquery
 RUN mkdir $HOME/.baseballquery
 RUN chown -R app:app $HOME/.baseballquery
+VOLUME $HOME/.baseballquery
 
 # change to the app user
 USER app
