@@ -2,13 +2,46 @@ version: '3.8'
 
 services:
   web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    entrypoint: /home/app/web/entrypoint.sh
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: gunicorn baseballquery_backend.wsgi:application
     volumes:
-      - ./:/usr/src/app/
-      - ~/.baseballquery:/root/.baseballquery
-      - ./lmdb_db:/usr/src/app/lmdb_db
-    ports:
-      - 8000:8000
+      - ~/.baseballquery:/home/app/.baseballquery
+      - ./lmdb_db:/home/app/web/lmdb_db
+      - ./db.sqlite3:/home/app/web/db.sqlite3
+    expose:
+      - 8000
     env_file:
-      - ./.env.dev
+      - ./.env.prod
+  nginx:
+    build: ./nginx
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - certs:/etc/nginx/certs
+      - html:/usr/share/nginx/html
+      - vhost:/etc/nginx/vhost.d
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    depends_on:
+      - web
+  acme-companion:
+    image: nginxproxy/acme-companion
+    env_file:
+      - ./.env.proxy-companion
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - html:/usr/share/nginx/html
+      - vhost:/etc/nginx/vhost.d
+      - acme:/etc/acme.sh
+    depends_on:
+      - nginx
+
+volumes:
+  certs:
+  html:
+  vhost:
+  acme:
