@@ -73,9 +73,19 @@ COPY . $APP_HOME
 RUN chown -R app:app $APP_HOME
 
 # chown .baseballquery
-RUN mkdir $HOME/.baseballquery
+RUN mkdir -p $HOME/.baseballquery
 RUN chown -R app:app $HOME/.baseballquery
 VOLUME $HOME/.baseballquery
+
+# chown lmdb_db
+RUN mkdir -p $HOME/lmdb_db
+RUN chown -R app:app $HOME/lmdb_db
+VOLUME $HOME/lmdb_db
+
+# chown db.sqlite3
+RUN touch $APP_HOME/db.sqlite3
+RUN chown app:app $APP_HOME/db.sqlite3
+VOLUME $APP_HOME/db.sqlite3
 
 # change to the app user
 USER app
