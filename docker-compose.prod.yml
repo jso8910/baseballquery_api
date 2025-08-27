@@ -10,6 +10,7 @@ services:
     volumes:
       - ~/.baseballquery:/home/app/.baseballquery
       - ./lmdb_db:/home/app/web/lmdb_db
+      - ./db.sqlite3:/home/app/web/db.sqlite3
     expose:
       - 8000
     env_file:
@@ -17,7 +18,8 @@ services:
   nginx:
     build: ./nginx
     ports:
-      - 80
+      - 80:80
+      - 443:443
     volumes:
       - certs:/etc/nginx/certs
       - html:/usr/share/nginx/html
