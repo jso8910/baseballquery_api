@@ -54,7 +54,7 @@ RUN pip install --no-cache /wheels/*
 # Install chadwick
 WORKDIR $HOME
 RUN git clone https://github.com/chadwickbureau/chadwick
-WORKDIR chadwick
+WORKDIR $HOME/chadwick
 RUN ./configure
 RUN make
 RUN make install
