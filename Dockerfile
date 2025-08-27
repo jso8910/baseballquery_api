@@ -73,7 +73,7 @@ COPY . $APP_HOME
 RUN chown -R app:app $APP_HOME
 
 # chown .baseballquery
-RUN chown -R app:app $APP_HOME/.baseballquery
+RUN chown -R app:app $HOME/.baseballquery
 
 # change to the app user
 USER app
