@@ -4,7 +4,7 @@ aiohttp==3.12.14
 aiosignal==1.4.0
 asgiref==3.9.1
 attrs==25.3.0
-baseballquery==0.3.13
+baseballquery==0.3.14
 Brotli==1.1.0
 certifi==2025.7.9
 cffi==1.17.1
