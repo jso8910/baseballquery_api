@@ -45,7 +45,7 @@ RUN mkdir $APP_HOME
 WORKDIR $APP_HOME
 
 # install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends netcat-traditional git
+RUN apt-get update && apt-get install -y --no-install-recommends netcat-traditional
 COPY --from=builder /usr/src/app/wheels /wheels
 COPY --from=builder /usr/src/app/requirements.txt .
 RUN pip install --upgrade pip
@@ -53,8 +53,8 @@ RUN pip install --no-cache /wheels/*
 
 # Install chadwick
 WORKDIR $HOME
-RUN git clone https://github.com/chadwickbureau/chadwick
-WORKDIR $HOME/chadwick
+RUN curl -L https://github.com/chadwickbureau/chadwick/releases/download/v0.10.0/chadwick-0.10.0.tar.gz | tar xz
+WORKDIR $HOME/chadwick-0.10.0
 RUN ./configure
 RUN make
 RUN make install
