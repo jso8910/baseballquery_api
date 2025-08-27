@@ -39,7 +39,7 @@ services:
       - vhost:/etc/nginx/vhost.d
       - acme:/etc/acme.sh
     depends_on:
-      - nginx
+      - nginx-proxy
 
 volumes:
   certs:
